@@ -1,539 +1,706 @@
 <!DOCTYPE html>
-<html lang="zh-CN" x-data="dashboardApp()" x-init="init()" :class="darkMode ? 'dark' : ''">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>预测订货管理</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>每周订货预测系统</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
-      darkMode: 'class',
       theme: {
         extend: {
-          fontFamily: { sans: ['Inter', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'] }
+          fontFamily: { sans: ['-apple-system', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'] }
         }
       }
     }
   </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
   <style>
-    /* Custom scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-    .dark ::-webkit-scrollbar-thumb { background: #475569; }
-
-    /* Toggle switch */
-    .toggle-wrap input[type="checkbox"] { display: none; }
-    .toggle-track {
-      width: 44px; height: 24px; border-radius: 12px;
-      background: #cbd5e1; position: relative; cursor: pointer;
-      transition: background 0.2s ease;
+    input[type="number"] { font-size: 16px; }
+    .day-cell { min-width: 0; }
+    @keyframes fadeInOut {
+      0%   { opacity: 0; transform: translateY(10px); }
+      15%  { opacity: 1; transform: translateY(0); }
+      85%  { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-10px); }
     }
-    .toggle-track.checked { background: #3b82f6; }
-    .toggle-track.promo.checked  { background: #f97316; }
-    .toggle-track.holiday.checked { background: #ef4444; }
-    .toggle-thumb {
-      width: 18px; height: 18px; border-radius: 50%; background: white;
-      position: absolute; top: 3px; left: 3px;
-      transition: transform 0.2s ease;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    }
-    .toggle-track.checked .toggle-thumb { transform: translateX(20px); }
-
-    /* Number input */
-    input[type=number]::-webkit-inner-spin-button,
-    input[type=number]::-webkit-outer-spin-button { opacity: 1; }
-
-    /* Forecast bar subtle pattern */
-    .forecast-badge {
-      background: repeating-linear-gradient(
-        45deg, transparent, transparent 3px,
-        rgba(255,255,255,0.15) 3px, rgba(255,255,255,0.15) 6px
-      );
-    }
-
-    /* Card entrance animation */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(16px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .card-anim { animation: fadeUp 0.4s ease both; }
-    .card-anim:nth-child(2) { animation-delay: 0.08s; }
-    .card-anim:nth-child(3) { animation-delay: 0.16s; }
-
-    /* Metric value pulse on change */
-    @keyframes numPulse {
-      0%   { transform: scale(1); }
-      50%  { transform: scale(1.05); }
-      100% { transform: scale(1); }
-    }
-    .num-pulse { animation: numPulse 0.25s ease; }
+    .toast-anim { animation: fadeInOut 2s ease both; }
+    /* 日历周高亮行 */
+    .week-row-selected td { background: #eff6ff; }
+    .week-row-selected td:first-child { border-radius: 8px 0 0 8px; }
+    .week-row-selected td:last-child  { border-radius: 0 8px 8px 0; }
+    /* 日历过渡 */
+    .cal-slide { transition: all 0.2s ease; }
   </style>
 </head>
 
-<body class="font-sans min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors duration-300">
+<body class="bg-gray-50 font-sans min-h-screen pb-8" x-data="orderApp()" x-init="init()">
 
-<!-- ══════════════════════════════════ TOP BAR ══════════════════════════════════ -->
-<header class="sticky top-0 z-30 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between shadow-sm">
-  <div class="flex items-center gap-3">
-    <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-      <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<!-- ════════════════════ 顶栏 ════════════════════ -->
+<header class="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+  <div class="px-4 py-3 flex items-center justify-between">
+    <h1 class="text-lg font-bold text-gray-800">每周订货预测系统</h1>
+    <button @click="showCal = !showCal"
+      class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+      :class="showCal ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600'">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
       </svg>
-    </div>
-    <div>
-      <h1 class="text-base font-semibold leading-tight">预测订货管理</h1>
-      <p class="text-xs text-slate-400 dark:text-slate-500">基于加权移动平均的智能补货建议</p>
-    </div>
+      选择周期
+    </button>
   </div>
-
-  <button @click="darkMode = !darkMode"
-    class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-    <svg x-show="!darkMode" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-    </svg>
-    <svg x-show="darkMode" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-    </svg>
-  </button>
+  <!-- 已选周期条 -->
+  <div class="px-4 pb-2 flex items-center gap-2" @click="showCal = true">
+    <span class="text-xs text-gray-400">订货周期</span>
+    <span class="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full"
+      x-text="selectedPeriodLabel"></span>
+  </div>
 </header>
 
-<!-- ══════════════════════════════ GLOBAL CONTROLS ══════════════════════════════ -->
-<section class="mx-6 mt-5 p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center gap-6">
+<!-- ════════════════════ 日历选择器 (可折叠) ════════════════════ -->
+<div x-show="showCal" x-transition:enter="transition ease-out duration-200"
+  x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+  x-transition:leave="transition ease-in duration-150"
+  x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0 -translate-y-2"
+  class="mx-4 mt-3 bg-white rounded-xl border border-gray-200 shadow-md overflow-hidden">
 
-  <!-- Safety stock slider -->
-  <div class="flex items-center gap-4 flex-1 min-w-60">
-    <div class="flex-shrink-0">
-      <p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-0.5">安全库存天数</p>
-      <div class="flex items-baseline gap-1">
-        <span class="text-2xl font-bold text-blue-600" x-text="safetyDays"></span>
-        <span class="text-sm text-slate-500">天</span>
-      </div>
-    </div>
-    <div class="flex-1">
-      <input type="range" min="2" max="3" step="0.5" x-model.number="safetyDays"
-        class="w-full h-2 rounded-full appearance-none cursor-pointer
-               bg-slate-200 dark:bg-slate-600
-               [&::-webkit-slider-thumb]:appearance-none
-               [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5
-               [&::-webkit-slider-thumb]:rounded-full
-               [&::-webkit-slider-thumb]:bg-blue-600
-               [&::-webkit-slider-thumb]:shadow-md
-               [&::-webkit-slider-thumb]:cursor-pointer">
-      <div class="flex justify-between text-xs text-slate-400 mt-1 px-1">
-        <span>2天</span><span>2.5天</span><span>3天</span>
-      </div>
-    </div>
+  <!-- 月份导航 -->
+  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+    <button @click="calPrevMonth()" class="p-1 rounded-lg hover:bg-gray-100 active:bg-gray-200 transition-colors">
+      <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+      </svg>
+    </button>
+    <span class="text-sm font-bold text-gray-800"
+      x-text="calYear + '年' + (calMonth + 1) + '月'"></span>
+    <button @click="calNextMonth()" class="p-1 rounded-lg hover:bg-gray-100 active:bg-gray-200 transition-colors">
+      <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </button>
   </div>
 
-  <div class="h-10 w-px bg-slate-200 dark:bg-slate-600 hidden sm:block"></div>
-
-  <!-- Global toggles -->
-  <div class="flex gap-6 flex-wrap">
-    <div>
-      <p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">全局促销周</p>
-      <label class="toggle-wrap flex items-center gap-2 cursor-pointer" @click="globalPromo = !globalPromo">
-        <div class="toggle-track promo" :class="{ checked: globalPromo }">
-          <div class="toggle-thumb"></div>
-        </div>
-        <span class="text-sm font-medium" :class="globalPromo ? 'text-orange-500 font-semibold' : 'text-slate-500 dark:text-slate-400'">
-          <span x-show="globalPromo">× 2 倍需求</span>
-          <span x-show="!globalPromo">未激活</span>
-        </span>
-      </label>
-    </div>
-    <div>
-      <p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">全局节假日</p>
-      <label class="toggle-wrap flex items-center gap-2 cursor-pointer" @click="globalHoliday = !globalHoliday">
-        <div class="toggle-track holiday" :class="{ checked: globalHoliday }">
-          <div class="toggle-thumb"></div>
-        </div>
-        <span class="text-sm font-medium" :class="globalHoliday ? 'text-red-500 font-semibold' : 'text-slate-500 dark:text-slate-400'">
-          <span x-show="globalHoliday">× 1.5 倍需求</span>
-          <span x-show="!globalHoliday">未激活</span>
-        </span>
-      </label>
-    </div>
+  <!-- 提示 -->
+  <div class="px-4 pt-2 pb-1">
+    <p class="text-[11px] text-gray-400">点击任意日期，自动选中该日所在的整周（周二~周一）</p>
   </div>
 
-  <!-- WMA hint -->
-  <div class="ml-auto text-xs text-slate-400 dark:text-slate-500 hidden lg:block text-right leading-relaxed">
-    预测算法：加权移动平均<br>
-    权重：第1周×1 / 第2周×2 / 第3周×3
+  <!-- 星期表头 -->
+  <div class="grid grid-cols-7 px-3 pt-1">
+    <template x-for="h in ['二','三','四','五','六','日','一']" :key="h">
+      <div class="text-center text-[11px] font-medium text-gray-400 py-1" x-text="h"></div>
+    </template>
   </div>
-</section>
 
-<!-- ══════════════════════════════ REGION CARDS ══════════════════════════════════ -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-5 mx-6 mt-5">
-  <template x-for="(region, idx) in regions" :key="region.id">
-    <div class="card-anim rounded-xl bg-white dark:bg-slate-800 border shadow-sm overflow-hidden transition-shadow hover:shadow-md"
-      :class="{
-        'border-blue-200 dark:border-blue-800':   region.id === 'a',
-        'border-emerald-200 dark:border-emerald-800': region.id === 'b',
-        'border-violet-200 dark:border-violet-800':  region.id === 'c',
-      }">
-
-      <!-- Card header -->
-      <div class="px-4 py-3 flex items-center justify-between"
-        :class="{
-          'bg-blue-50 dark:bg-blue-900/30':    region.id === 'a',
-          'bg-emerald-50 dark:bg-emerald-900/30': region.id === 'b',
-          'bg-violet-50 dark:bg-violet-900/30':  region.id === 'c',
-        }">
-        <div class="flex items-center gap-2">
-          <span class="text-lg font-bold"
+  <!-- 日期网格 -->
+  <div class="px-3 pb-3">
+    <template x-for="(week, wi) in calWeeks" :key="wi">
+      <div class="grid grid-cols-7" :class="isWeekSelected(week) ? 'rounded-lg bg-blue-50' : ''">
+        <template x-for="(cell, ci) in week" :key="wi + '-' + ci">
+          <button @click="cell.date && selectWeekByDate(cell.date)"
+            class="py-2 text-center text-sm rounded-lg transition-all relative"
             :class="{
-              'text-blue-600':    region.id === 'a',
-              'text-emerald-600': region.id === 'b',
-              'text-violet-600':  region.id === 'c',
-            }" x-text="region.name"></span>
-          <!-- Status badges -->
-          <span x-show="isPromoActive(region)"
-            class="text-xs px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-400 font-medium">
-            促销中
-          </span>
-          <span x-show="isHolidayActive(region) && !isPromoActive(region)"
-            class="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 font-medium">
-            节假日
-          </span>
-        </div>
-        <span class="text-xs px-2 py-1 rounded-full font-medium"
-          :class="{
-            'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300':       region.id === 'a',
-            'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300': region.id === 'b',
-            'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300':    region.id === 'c',
-          }">
-          × <span x-text="getMultiplier(region).toFixed(1)"></span> 系数
-        </span>
-      </div>
-
-      <div class="p-4 space-y-4">
-
-        <!-- Weekly inputs -->
-        <div>
-          <p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">历史周销量（件）</p>
-          <div class="grid grid-cols-3 gap-2">
-            <template x-for="(week, wi) in [0,1,2]" :key="wi">
-              <div>
-                <label class="text-xs text-slate-400 dark:text-slate-500 block mb-1"
-                  x-text="'第' + (wi+1) + '周'"></label>
-                <input type="number" min="0"
-                  x-model.number="region.sales[wi]"
-                  @blur="if(region.sales[wi] < 0 || isNaN(region.sales[wi])) region.sales[wi] = 0"
-                  class="w-full text-sm font-semibold text-center rounded-lg border px-2 py-2 focus:ring-2 focus:outline-none transition
-                         bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
-                  :class="{
-                    'border-blue-200 focus:ring-blue-300 focus:border-blue-400':       region.id === 'a',
-                    'border-emerald-200 focus:ring-emerald-300 focus:border-emerald-400': region.id === 'b',
-                    'border-violet-200 focus:ring-violet-300 focus:border-violet-400':   region.id === 'c',
-                  }">
-              </div>
-            </template>
-          </div>
-        </div>
-
-        <!-- Per-region toggles -->
-        <div class="grid grid-cols-2 gap-2 py-2 border-t border-slate-100 dark:border-slate-700">
-          <div>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mb-1.5">促销周</p>
-            <label class="toggle-wrap flex items-center gap-1.5 cursor-pointer" @click="region.promoWeek = !region.promoWeek">
-              <div class="toggle-track promo" :class="{ checked: region.promoWeek }">
-                <div class="toggle-thumb"></div>
-              </div>
-              <span class="text-xs" :class="region.promoWeek ? 'text-orange-500 font-medium' : 'text-slate-400 dark:text-slate-500'">
-                <span x-show="region.promoWeek">×2</span>
-                <span x-show="!region.promoWeek">关</span>
-              </span>
-            </label>
-          </div>
-          <div>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mb-1.5">节假日</p>
-            <label class="toggle-wrap flex items-center gap-1.5 cursor-pointer" @click="region.holidayWeek = !region.holidayWeek">
-              <div class="toggle-track holiday" :class="{ checked: region.holidayWeek }">
-                <div class="toggle-thumb"></div>
-              </div>
-              <span class="text-xs" :class="region.holidayWeek ? 'text-red-500 font-medium' : 'text-slate-400 dark:text-slate-500'">
-                <span x-show="region.holidayWeek">×1.5</span>
-                <span x-show="!region.holidayWeek">关</span>
-              </span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Output metrics -->
-        <div class="space-y-2 pt-1">
-          <div class="flex justify-between items-center text-sm py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-            <span class="text-slate-500 dark:text-slate-400">基础预测需求</span>
-            <span class="font-semibold" x-text="Math.round(getBaseWMA(region)) + ' 件'"></span>
-          </div>
-          <div class="flex justify-between items-center text-sm py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-            <span class="text-slate-500 dark:text-slate-400">叠加系数后需求</span>
-            <span class="font-semibold" x-text="Math.round(getForecastDemand(region)) + ' 件'"></span>
-          </div>
-          <div class="flex justify-between items-center text-sm py-1.5 px-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-            <span class="text-slate-500 dark:text-slate-400">安全库存 (<span x-text="safetyDays"></span>天)</span>
-            <span class="font-semibold" x-text="Math.round(getSafetyStock(region)) + ' 件'"></span>
-          </div>
-          <!-- Total order highlight -->
-          <div class="flex justify-between items-center py-2.5 px-3 rounded-xl"
-            :class="{
-              'bg-blue-600 dark:bg-blue-700':    region.id === 'a',
-              'bg-emerald-600 dark:bg-emerald-700': region.id === 'b',
-              'bg-violet-600 dark:bg-violet-700':  region.id === 'c',
+              'text-gray-300 pointer-events-none': !cell.inMonth,
+              'text-gray-700': cell.inMonth && !cell.isSelected,
+              'text-blue-700 font-bold': cell.isSelected,
+              'ring-2 ring-blue-400 bg-blue-100': cell.isToday && cell.isSelected,
+              'ring-1 ring-gray-300': cell.isToday && !cell.isSelected,
+              'hover:bg-gray-100': cell.inMonth && !cell.isSelected,
             }">
-            <span class="text-white/90 text-sm font-medium">建议订货量</span>
-            <span class="text-white text-xl font-bold" x-text="getTotalOrder(region) + ' 件'"></span>
-          </div>
-        </div>
-
+            <span x-text="cell.day"></span>
+            <!-- 周起始标记 -->
+            <span x-show="cell.isWeekStart && cell.isSelected"
+              class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500"></span>
+          </button>
+        </template>
       </div>
+    </template>
+  </div>
+
+  <!-- 选中确认 -->
+  <div class="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+    <div class="text-xs text-gray-500">
+      已选：<span class="font-semibold text-blue-600" x-text="selectedPeriodLabel"></span>
     </div>
-  </template>
+    <button @click="showCal = false"
+      class="px-4 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg active:bg-blue-700 transition-colors">
+      确定
+    </button>
+  </div>
 </div>
 
-<!-- ══════════════════════════════════ CHART ════════════════════════════════════ -->
-<section class="mx-6 mt-5 p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
-  <div class="flex items-center justify-between mb-4">
+<!-- ════════════════════ 系数设置 ════════════════════ -->
+<section class="mx-4 mt-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">系数设置</h2>
+  <div class="grid grid-cols-2 gap-4">
     <div>
-      <h2 class="text-sm font-semibold">销量趋势与预测</h2>
-      <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">第1~3周为历史数据，第4周为预测订货量（含安全库存）</p>
+      <label class="text-xs text-gray-500 block mb-1">节假日系数</label>
+      <input type="number" step="0.1" min="1" max="5"
+        x-model.number="holidayCoeff" @change="saveSettings()"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-center font-semibold text-amber-600 focus:ring-2 focus:ring-amber-300 focus:outline-none">
     </div>
-    <div class="flex gap-3 text-xs text-slate-500 dark:text-slate-400">
-      <span class="flex items-center gap-1.5">
-        <span class="w-3 h-3 rounded-sm bg-blue-500 inline-block"></span>A区
-      </span>
-      <span class="flex items-center gap-1.5">
-        <span class="w-3 h-3 rounded-sm bg-emerald-500 inline-block"></span>B区
-      </span>
-      <span class="flex items-center gap-1.5">
-        <span class="w-3 h-3 rounded-sm bg-violet-500 inline-block"></span>C区
-      </span>
+    <div>
+      <label class="text-xs text-gray-500 block mb-1">促销系数</label>
+      <input type="number" step="0.1" min="1" max="10"
+        x-model.number="promoCoeff" @change="saveSettings()"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-center font-semibold text-pink-600 focus:ring-2 focus:ring-pink-300 focus:outline-none">
     </div>
   </div>
-  <div class="relative" style="height: 280px;">
-    <canvas id="forecastChart"></canvas>
-  </div>
-  <!-- Alpine reactive sync trigger -->
-  <div x-effect="updateChart()" class="hidden"></div>
 </section>
 
-<!-- ══════════════════════════════ SUMMARY TABLE ════════════════════════════════ -->
-<section class="mx-6 mt-5 mb-8 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-  <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
-    <h2 class="text-sm font-semibold">汇总明细</h2>
+<!-- ════════════════════ 订货周内特殊日期勾选 ════════════════════ -->
+<section class="mx-4 mt-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-semibold text-gray-700">特殊日期标记</h2>
+    <span class="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-600 font-medium"
+      x-text="selectedPeriodLabel"></span>
   </div>
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="bg-slate-50 dark:bg-slate-700/50 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-          <th class="text-left px-5 py-3">地区</th>
-          <th class="text-right px-4 py-3">基础预测</th>
-          <th class="text-right px-4 py-3">叠加系数</th>
-          <th class="text-right px-4 py-3">预测需求</th>
-          <th class="text-right px-4 py-3">安全库存</th>
-          <th class="text-right px-5 py-3 font-bold">建议订货量</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-for="region in regions" :key="region.id">
-          <tr class="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-            <td class="px-5 py-3 font-semibold flex items-center gap-2">
-              <span class="w-2 h-6 rounded-full inline-block"
-                :class="{
-                  'bg-blue-500':    region.id === 'a',
-                  'bg-emerald-500': region.id === 'b',
-                  'bg-violet-500':  region.id === 'c',
-                }"></span>
-              <span x-text="region.name"></span>
-              <span x-show="isPromoActive(region)"
-                class="text-xs px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400">促销</span>
-              <span x-show="isHolidayActive(region) && !isPromoActive(region)"
-                class="text-xs px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400">节假日</span>
-            </td>
-            <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-400" x-text="Math.round(getBaseWMA(region)) + ' 件'"></td>
-            <td class="px-4 py-3 text-right">
-              <span class="font-medium"
-                :class="{
-                  'text-orange-500': getMultiplier(region) >= 2.0,
-                  'text-red-500':    getMultiplier(region) === 1.5,
-                  'text-slate-500 dark:text-slate-400': getMultiplier(region) === 1.0,
-                }"
-                x-text="'× ' + getMultiplier(region).toFixed(1)"></span>
-            </td>
-            <td class="px-4 py-3 text-right font-medium" x-text="Math.round(getForecastDemand(region)) + ' 件'"></td>
-            <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-400" x-text="Math.round(getSafetyStock(region)) + ' 件'"></td>
-            <td class="px-5 py-3 text-right">
-              <span class="font-bold text-base"
-                :class="{
-                  'text-blue-600 dark:text-blue-400':    region.id === 'a',
-                  'text-emerald-600 dark:text-emerald-400': region.id === 'b',
-                  'text-violet-600 dark:text-violet-400':  region.id === 'c',
-                }"
-                x-text="getTotalOrder(region) + ' 件'"></span>
-            </td>
-          </tr>
+
+  <!-- 7天勾选网格 -->
+  <div class="grid grid-cols-7 gap-1 text-center">
+    <template x-for="day in nextWeekDays" :key="day.date">
+      <div class="day-cell">
+        <p class="text-xs font-medium text-gray-500" x-text="'周' + day.label"></p>
+        <p class="text-xs text-gray-400 mb-1.5" x-text="day.short"></p>
+        <label class="flex flex-col items-center cursor-pointer mb-1">
+          <input type="checkbox" x-model="day.isHoliday"
+            class="w-4 h-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 accent-amber-500">
+          <span class="text-[10px] mt-0.5"
+            :class="day.isHoliday ? 'text-amber-600 font-medium' : 'text-gray-400'">节</span>
+        </label>
+        <label class="flex flex-col items-center cursor-pointer">
+          <input type="checkbox" x-model="day.isPromo"
+            class="w-4 h-4 rounded border-gray-300 text-pink-500 focus:ring-pink-400 accent-pink-500">
+          <span class="text-[10px] mt-0.5"
+            :class="day.isPromo ? 'text-pink-600 font-medium' : 'text-gray-400'">促</span>
+        </label>
+      </div>
+    </template>
+  </div>
+
+  <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+    <div class="flex gap-3 text-xs text-gray-400">
+      <span>节假日 <span class="font-medium text-amber-600" x-text="holidayCount + '天'"></span></span>
+      <span>促销 <span class="font-medium text-pink-600" x-text="promoCount + '天'"></span></span>
+    </div>
+    <div class="text-sm font-bold" :class="getMultiplier() > 1 ? 'text-blue-600' : 'text-gray-500'">
+      综合倍数 × <span x-text="getMultiplier().toFixed(3)"></span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════ 商品卡片 ════════════════════ -->
+<template x-for="(p, pi) in products" :key="p.name">
+  <section class="mx-4 mt-4 bg-white rounded-xl border shadow-sm overflow-hidden"
+    :class="{
+      'border-blue-200':   pi === 0,
+      'border-green-200':  pi === 1,
+      'border-purple-200': pi === 2,
+    }">
+    <div class="px-4 py-2.5 flex items-center justify-between"
+      :class="{
+        'bg-blue-50':   pi === 0,
+        'bg-green-50':  pi === 1,
+        'bg-purple-50': pi === 2,
+      }">
+      <span class="font-bold"
+        :class="{
+          'text-blue-700':   pi === 0,
+          'text-green-700':  pi === 1,
+          'text-purple-700': pi === 2,
+        }" x-text="p.name"></span>
+      <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+        :class="{
+          'bg-blue-100 text-blue-600':     pi === 0,
+          'bg-green-100 text-green-600':   pi === 1,
+          'bg-purple-100 text-purple-600': pi === 2,
+        }" x-text="'¥' + p.price"></span>
+    </div>
+
+    <div class="p-4 space-y-3">
+      <!-- 退货（置顶） -->
+      <div class="flex items-center gap-3 p-2.5 rounded-lg bg-red-50 border border-red-100">
+        <label class="text-xs font-medium text-red-500 whitespace-nowrap">本周退货</label>
+        <input type="number" min="0" x-model.number="p.returns"
+          @blur="if(isNaN(p.returns) || p.returns < 0) p.returns = 0"
+          placeholder="0"
+          class="flex-1 border border-red-200 rounded-lg px-3 py-2 font-semibold text-center text-red-600 bg-white focus:ring-2 focus:ring-red-300 focus:outline-none">
+        <span class="text-xs text-red-400 whitespace-nowrap" x-show="p.returns > 0"
+          x-text="'库存 ' + (p.currentStock||0) + '-' + p.returns + '=' + getAdjustedStock(p)"></span>
+      </div>
+
+      <!-- 输入行 -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">当前库存</label>
+          <input type="number" min="0" x-model.number="p.currentStock"
+            @blur="if(isNaN(p.currentStock) || p.currentStock < 0) p.currentStock = 0"
+            placeholder="0"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 font-semibold text-center focus:ring-2 focus:outline-none"
+            :class="{
+              'focus:ring-blue-300 focus:border-blue-400':     pi === 0,
+              'focus:ring-green-300 focus:border-green-400':   pi === 1,
+              'focus:ring-purple-300 focus:border-purple-400': pi === 2,
+            }">
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">上周订货量</label>
+          <input type="number" min="0" x-model.number="p.lastOrder"
+            @blur="if(isNaN(p.lastOrder) || p.lastOrder < 0) p.lastOrder = 0"
+            placeholder="0"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 font-semibold text-center focus:ring-2 focus:outline-none"
+            :class="{
+              'focus:ring-blue-300 focus:border-blue-400':     pi === 0,
+              'focus:ring-green-300 focus:border-green-400':   pi === 1,
+              'focus:ring-purple-300 focus:border-purple-400': pi === 2,
+            }">
+        </div>
+      </div>
+
+      <!-- 调整后库存提示 -->
+      <div x-show="p.returns > 0"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-xs text-amber-700">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>
+        <span>退货扣减后，实际库存为 <span class="font-bold" x-text="getAdjustedStock(p)"></span></span>
+      </div>
+
+      <!-- 计算结果 -->
+      <div class="space-y-1.5 pt-1">
+        <div class="flex justify-between items-center text-sm py-1.5 px-3 rounded-lg bg-gray-50">
+          <span class="text-gray-500">上周实际销量</span>
+          <span class="font-semibold text-gray-700" x-text="getActualSales(p)"></span>
+        </div>
+        <div class="flex justify-between items-center text-sm py-1.5 px-3 rounded-lg bg-gray-50">
+          <span class="text-gray-500">预估下周销量</span>
+          <span class="font-semibold text-gray-700" x-text="getForecastSales(p)"></span>
+        </div>
+      </div>
+
+      <!-- 建议订货量高亮 -->
+      <div class="flex justify-between items-center py-3 px-4 rounded-xl text-white"
+        :class="{
+          'bg-blue-600':   pi === 0,
+          'bg-green-600':  pi === 1,
+          'bg-purple-600': pi === 2,
+        }">
+        <span class="text-sm font-medium text-white/90">建议订货量</span>
+        <span class="text-2xl font-bold" x-text="getSuggestedOrder(p)"></span>
+      </div>
+    </div>
+  </section>
+</template>
+
+<!-- ════════════════════ 操作按钮 ════════════════════ -->
+<div class="mx-4 mt-5 grid grid-cols-2 gap-3">
+  <button @click="saveRecord()"
+    class="flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm bg-blue-600 text-white active:bg-blue-700 transition-colors shadow-sm">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+    </svg>
+    保存本周记录
+  </button>
+  <button @click="copyToClipboard()"
+    class="flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm bg-gray-700 text-white active:bg-gray-800 transition-colors shadow-sm">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
+    </svg>
+    复制数据
+  </button>
+</div>
+
+<!-- Toast -->
+<div x-show="toastMsg" x-transition
+  class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-sm font-medium shadow-lg toast-anim"
+  :class="toastType === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'"
+  x-text="toastMsg">
+</div>
+
+<!-- ════════════════════ 历史记录 ════════════════════ -->
+<section class="mx-4 mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+  <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-gray-700">
+      历史记录
+      <span class="text-xs text-gray-400 font-normal ml-1" x-text="'(' + history.length + '条)'"></span>
+    </h2>
+    <button x-show="history.length > 0" @click="if(confirm('确定清空全部历史记录？')) clearHistory()"
+      class="text-xs text-red-400 hover:text-red-600 transition-colors">清空</button>
+  </div>
+
+  <div x-show="history.length === 0" class="py-8 text-center text-sm text-gray-400">暂无历史记录</div>
+
+  <div x-show="history.length > 0" class="overflow-x-auto">
+    <template x-for="(record, ri) in history.slice().reverse()" :key="record.date + ri">
+      <div class="border-b border-gray-50 last:border-0">
+        <div class="px-4 py-2 bg-gray-50 flex items-center justify-between">
+          <span class="text-xs font-medium text-gray-600" x-text="record.period || record.date"></span>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-400" x-text="'倍数 ×' + (record.multiplier || 1).toFixed(2)"></span>
+            <button @click="deleteRecord(history.length - 1 - ri)"
+              class="text-xs text-red-300 hover:text-red-500 transition-colors ml-1">删除</button>
+          </div>
+        </div>
+        <template x-for="e in record.entries" :key="e.product">
+          <div class="px-4 py-1.5 flex items-center text-xs gap-2 border-t border-gray-50">
+            <span class="w-16 font-medium text-gray-600 flex-shrink-0" x-text="e.product"></span>
+            <div class="flex-1 flex items-center gap-2 text-gray-500 overflow-x-auto whitespace-nowrap">
+              <span x-show="e.returns > 0">退:<span class="text-red-500 font-medium" x-text="e.returns"></span></span>
+              <span>库存:<span class="font-medium text-gray-700" x-text="e.returns > 0 ? (e.adjustedStock ?? e.stock) : e.stock"></span>
+                <span x-show="e.returns > 0" class="text-gray-400" x-text="'(' + e.stock + '-' + e.returns + ')'"></span>
+              </span>
+              <span>销量:<span class="font-medium text-gray-700" x-text="e.sales"></span></span>
+              <span>订货:<span class="font-bold" :class="e.order > 0 ? 'text-blue-600' : 'text-gray-400'" x-text="e.order"></span></span>
+            </div>
+          </div>
         </template>
-      </tbody>
-      <tfoot>
-        <tr class="border-t-2 border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 font-bold">
-          <td class="px-5 py-3 text-slate-600 dark:text-slate-300">合计（三区域）</td>
-          <td class="px-4 py-3 text-right text-slate-500" x-text="regions.reduce((s,r) => s + Math.round(getBaseWMA(r)), 0) + ' 件'"></td>
-          <td class="px-4 py-3 text-right text-slate-400">—</td>
-          <td class="px-4 py-3 text-right" x-text="regions.reduce((s,r) => s + Math.round(getForecastDemand(r)), 0) + ' 件'"></td>
-          <td class="px-4 py-3 text-right text-slate-500" x-text="regions.reduce((s,r) => s + Math.round(getSafetyStock(r)), 0) + ' 件'"></td>
-          <td class="px-5 py-3 text-right text-blue-600 dark:text-blue-400 text-base"
-            x-text="regions.reduce((s,r) => s + getTotalOrder(r), 0) + ' 件'"></td>
-        </tr>
-      </tfoot>
-    </table>
+      </div>
+    </template>
   </div>
 </section>
 
-<!-- ═══════════════════════════════ ALPINE APP ══════════════════════════════════ -->
-<script>
-function dashboardApp() {
-  return {
-    darkMode: false,
-    safetyDays: 2.5,
-    globalPromo: false,
-    globalHoliday: false,
+<div class="h-8"></div>
 
-    regions: [
-      { id: 'a', name: 'A区', sales: [420, 480, 510], promoWeek: false, holidayWeek: false },
-      { id: 'b', name: 'B区', sales: [390, 430, 460], promoWeek: false, holidayWeek: false },
-      { id: 'c', name: 'C区', sales: [510, 540, 590], promoWeek: false, holidayWeek: false },
+<!-- ════════════════════ ALPINE APP ════════════════════ -->
+<script>
+const DAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'];
+
+function formatDateShort(d) {
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+function formatDateWithDay(d) {
+  return formatDateShort(d) + '(' + DAY_LABELS[d.getDay()] + ')';
+}
+function dateToStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+// 获取某日期所在周期的起始周二（周二~下周一）
+function getPeriodTuesday(dt) {
+  const d = new Date(dt);
+  const dow = d.getDay();
+  let diff = (dow >= 2) ? (dow - 2) : (dow + 5);
+  d.setDate(d.getDate() - diff);
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+function orderApp() {
+  return {
+    // 系数
+    holidayCoeff: 1.5,
+    promoCoeff: 2.0,
+
+    // 日历状态
+    showCal: false,
+    calYear: 2026,
+    calMonth: 3, // 0-indexed, 3=April
+    calWeeks: [],
+
+    // 选中的周期 (起始周二)
+    selectedTueDate: null,   // Date object
+    selectedPeriodLabel: '',
+    nextWeekDays: [],
+
+    // 商品
+    products: [
+      { name: '30元商品',  price: 30,  currentStock: 0, lastOrder: 0, returns: 0 },
+      { name: '50元商品',  price: 50,  currentStock: 0, lastOrder: 0, returns: 0 },
+      { name: '100元商品', price: 100, currentStock: 0, lastOrder: 0, returns: 0 },
     ],
 
-    chart: null,
+    // 历史
+    history: [],
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // Toast
+    toastMsg: '',
+    toastType: 'success',
 
-    isPromoActive(region)   { return this.globalPromo   || region.promoWeek; },
-    isHolidayActive(region) { return this.globalHoliday || region.holidayWeek; },
-
-    getMultiplier(region) {
-      if (this.isPromoActive(region))   return 2.0;
-      if (this.isHolidayActive(region)) return 1.5;
-      return 1.0;
-    },
-
-    // Weighted moving average: weights [1, 2, 3] (newest = highest weight)
-    getBaseWMA(region) {
-      const sales = region.sales;
-      const weights = [1, 2, 3];
-      const weightSum = 6;
-      const valid = sales.map(v => (isNaN(v) || v < 0) ? 0 : v);
-      return valid.reduce((sum, v, i) => sum + v * weights[i], 0) / weightSum;
-    },
-
-    getForecastDemand(region) {
-      return this.getBaseWMA(region) * this.getMultiplier(region);
-    },
-
-    getSafetyStock(region) {
-      return (this.getForecastDemand(region) / 7) * this.safetyDays;
-    },
-
-    getTotalOrder(region) {
-      return Math.ceil(this.getForecastDemand(region) + this.getSafetyStock(region));
-    },
-
-    // ── Chart ─────────────────────────────────────────────────────────────────
-
-    regionColors: {
-      a: { solid: '#3b82f6', light: '#93c5fd', dark: '#1d4ed8' },
-      b: { solid: '#10b981', light: '#6ee7b7', dark: '#065f46' },
-      c: { solid: '#8b5cf6', light: '#c4b5fd', dark: '#5b21b6' },
-    },
-
-    getChartData() {
-      return {
-        labels: ['第1周', '第2周', '第3周', '预测周 ↑'],
-        datasets: this.regions.map(r => {
-          const col = this.regionColors[r.id];
-          return {
-            label: r.name,
-            data: [...r.sales.map(v => isNaN(v) || v < 0 ? 0 : v), this.getTotalOrder(r)],
-            backgroundColor: [col.solid, col.solid, col.solid, col.light],
-            borderColor:     [col.solid, col.solid, col.solid, col.solid],
-            borderWidth:     [0, 0, 0, 1.5],
-            borderRadius: 6,
-            borderSkipped: false,
-          };
-        }),
-      };
-    },
-
-    initChart() {
-      const ctx = document.getElementById('forecastChart');
-      if (!ctx) return;
-      const isDark = this.darkMode;
-
-      this.chart = new Chart(ctx, {
-        type: 'bar',
-        data: this.getChartData(),
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: {
-              display: false,
-            },
-            tooltip: {
-              backgroundColor: isDark ? '#1e293b' : 'white',
-              titleColor: isDark ? '#94a3b8' : '#64748b',
-              bodyColor:  isDark ? '#e2e8f0' : '#1e293b',
-              borderColor: isDark ? '#334155' : '#e2e8f0',
-              borderWidth: 1,
-              padding: 10,
-              callbacks: {
-                label: ctx => ` ${ctx.dataset.label}：${Math.round(ctx.raw).toLocaleString('zh-CN')} 件`,
-              },
-            },
-          },
-          scales: {
-            x: {
-              grid: { display: false },
-              ticks: { color: isDark ? '#94a3b8' : '#64748b', font: { size: 12 } },
-            },
-            y: {
-              beginAtZero: false,
-              grid: { color: isDark ? '#1e293b' : '#f1f5f9' },
-              ticks: {
-                color: isDark ? '#94a3b8' : '#64748b',
-                font: { size: 11 },
-                callback: v => v.toLocaleString('zh-CN'),
-              },
-              title: { display: true, text: '数量（件）', color: isDark ? '#94a3b8' : '#94a3b8', font: { size: 11 } },
-            },
-          },
-          animation: { duration: 350, easing: 'easeInOutQuart' },
-        },
-      });
-    },
-
-    updateChart() {
-      if (!this.chart) return;
-      const newData = this.getChartData();
-      this.chart.data.labels    = newData.labels;
-      this.chart.data.datasets.forEach((ds, i) => {
-        Object.assign(ds, newData.datasets[i]);
-      });
-      this.chart.update('active');
-    },
-
-    // ── Lifecycle ──────────────────────────────────────────────────────────────
-
+    // ── 初始化 ──
     init() {
-      this.$nextTick(() => this.initChart());
+      const today = new Date();
+      // 默认选中：下一个周二开始的周期（即从今天往后找最近的下一个周二）
+      const curTue = getPeriodTuesday(today);
+      const nextTue = new Date(curTue);
+      nextTue.setDate(nextTue.getDate() + 7);
+      this.selectWeek(nextTue);
+
+      this.calYear = nextTue.getFullYear();
+      this.calMonth = nextTue.getMonth();
+      this.buildCalendar();
+
+      this.loadSettings();
+      this.loadHistory();
+    },
+
+    // ── 日历 ──
+
+    buildCalendar() {
+      const year = this.calYear;
+      const month = this.calMonth;
+
+      // 本月第1天
+      const firstDay = new Date(year, month, 1);
+      // 本月最后一天
+      const lastDay = new Date(year, month + 1, 0);
+
+      // 日历从周二开始：找到第1天前最近的周二
+      const startDate = new Date(firstDay);
+      const dow = startDate.getDay();
+      // 需要回退到周二：dow=0(Sun)->-5, 1(Mon)->-6, 2(Tue)->0, 3->-1, 4->-2, 5->-3, 6->-4
+      let backDays = (dow >= 2) ? (dow - 2) : (dow + 5);
+      startDate.setDate(startDate.getDate() - backDays);
+
+      const today = new Date();
+      today.setHours(0,0,0,0);
+
+      const weeks = [];
+      let cursor = new Date(startDate);
+
+      // 生成6周确保覆盖整月
+      for (let w = 0; w < 6; w++) {
+        const week = [];
+        for (let d = 0; d < 7; d++) {
+          const cellDate = new Date(cursor);
+          const inMonth = cellDate.getMonth() === month;
+          const isToday = sameDay(cellDate, today);
+          const isSelected = this.selectedTueDate && this.isDateInSelectedWeek(cellDate);
+          const isWeekStart = cellDate.getDay() === 2; // Tuesday
+          week.push({
+            date: new Date(cellDate),
+            day: cellDate.getDate(),
+            inMonth,
+            isToday,
+            isSelected,
+            isWeekStart,
+          });
+          cursor.setDate(cursor.getDate() + 1);
+        }
+        // 只显示含本月日期的行
+        if (week.some(c => c.inMonth)) {
+          weeks.push(week);
+        }
+      }
+      this.calWeeks = weeks;
+    },
+
+    isDateInSelectedWeek(dt) {
+      if (!this.selectedTueDate) return false;
+      const tue = this.selectedTueDate.getTime();
+      const mon = tue + 6 * 86400000;
+      const t = dt.getTime();
+      return t >= tue && t <= mon;
+    },
+
+    isWeekSelected(week) {
+      return week.some(c => c.isSelected);
+    },
+
+    selectWeekByDate(dt) {
+      const tue = getPeriodTuesday(dt);
+      this.selectWeek(tue);
+      this.buildCalendar(); // 刷新高亮
+    },
+
+    selectWeek(tue) {
+      this.selectedTueDate = new Date(tue);
+      const mon = new Date(tue);
+      mon.setDate(mon.getDate() + 6);
+      this.selectedPeriodLabel = formatDateWithDay(tue) + ' ~ ' + formatDateWithDay(mon);
+
+      // 生成 7 天特殊日期勾选
+      this.nextWeekDays = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(tue);
+        d.setDate(d.getDate() + i);
+        this.nextWeekDays.push({
+          date: dateToStr(d),
+          label: DAY_LABELS[d.getDay()],
+          short: formatDateShort(d),
+          isHoliday: false,
+          isPromo: false,
+        });
+      }
+    },
+
+    calPrevMonth() {
+      if (this.calMonth === 0) {
+        this.calMonth = 11;
+        this.calYear--;
+      } else {
+        this.calMonth--;
+      }
+      this.buildCalendar();
+    },
+
+    calNextMonth() {
+      if (this.calMonth === 11) {
+        this.calMonth = 0;
+        this.calYear++;
+      } else {
+        this.calMonth++;
+      }
+      this.buildCalendar();
+    },
+
+    // ── 计算 ──
+
+    get holidayCount() {
+      return this.nextWeekDays.filter(d => d.isHoliday).length;
+    },
+    get promoCount() {
+      return this.nextWeekDays.filter(d => d.isPromo).length;
+    },
+
+    getMultiplier() {
+      if (this.nextWeekDays.length === 0) return 1;
+      let sum = 0;
+      for (const day of this.nextWeekDays) {
+        let m = 1.0;
+        if (day.isHoliday) m *= this.holidayCoeff;
+        if (day.isPromo)   m *= this.promoCoeff;
+        sum += m;
+      }
+      return sum / 7;
+    },
+
+    getAdjustedStock(p) {
+      return Math.max(0, (p.currentStock || 0) - (p.returns || 0));
+    },
+
+    getActualSales(p) {
+      const adjustedStock = this.getAdjustedStock(p);
+      return Math.max(0, (p.lastOrder || 0) - adjustedStock);
+    },
+
+    getForecastSales(p) {
+      return Math.round(this.getActualSales(p) * this.getMultiplier());
+    },
+
+    getSuggestedOrder(p) {
+      const adjustedStock = this.getAdjustedStock(p);
+      return Math.max(0, this.getForecastSales(p) - adjustedStock);
+    },
+
+    // ── 保存/加载 ──
+
+    saveSettings() {
+      localStorage.setItem('weekly_order_settings', JSON.stringify({
+        holidayCoeff: this.holidayCoeff,
+        promoCoeff: this.promoCoeff,
+      }));
+    },
+
+    loadSettings() {
+      try {
+        const s = JSON.parse(localStorage.getItem('weekly_order_settings'));
+        if (s) {
+          if (s.holidayCoeff) this.holidayCoeff = s.holidayCoeff;
+          if (s.promoCoeff)   this.promoCoeff = s.promoCoeff;
+        }
+      } catch(e) {}
+    },
+
+    loadHistory() {
+      try {
+        const raw = localStorage.getItem('weekly_order_history');
+        if (raw) this.history = JSON.parse(raw);
+      } catch(e) { this.history = []; }
+    },
+
+    saveHistory() {
+      localStorage.setItem('weekly_order_history', JSON.stringify(this.history));
+    },
+
+    saveRecord() {
+      const record = {
+        date: new Date().toISOString().slice(0, 10),
+        period: this.selectedPeriodLabel,
+        multiplier: this.getMultiplier(),
+        holidayDays: this.holidayCount,
+        promoDays: this.promoCount,
+        entries: this.products.map(p => ({
+          product: p.name,
+          stock: p.currentStock || 0,
+          adjustedStock: this.getAdjustedStock(p),
+          lastOrder: p.lastOrder || 0,
+          sales: this.getActualSales(p),
+          forecast: this.getForecastSales(p),
+          order: this.getSuggestedOrder(p),
+          returns: p.returns || 0,
+        })),
+      };
+      this.history.push(record);
+      this.saveHistory();
+      this.showToast('记录已保存', 'success');
+    },
+
+    deleteRecord(index) {
+      this.history.splice(index, 1);
+      this.saveHistory();
+      this.showToast('已删除', 'success');
+    },
+
+    clearHistory() {
+      this.history = [];
+      this.saveHistory();
+      this.showToast('历史已清空', 'success');
+    },
+
+    // ── 复制 ──
+
+    copyToClipboard() {
+      const header = '日期\t商品\t退货\t当前库存\t调整后库存\t上周订货\t实际销量\t预估销量\t建议订货量';
+      const rows = this.products.map(p =>
+        [
+          this.selectedPeriodLabel,
+          p.name,
+          p.returns || 0,
+          p.currentStock || 0,
+          this.getAdjustedStock(p),
+          p.lastOrder || 0,
+          this.getActualSales(p),
+          this.getForecastSales(p),
+          this.getSuggestedOrder(p),
+        ].join('\t')
+      );
+      const text = header + '\n' + rows.join('\n');
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          this.showToast('已复制，可粘贴到腾讯文档', 'success');
+        }).catch(() => this.fallbackCopy(text));
+      } else {
+        this.fallbackCopy(text);
+      }
+    },
+
+    fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        this.showToast('已复制，可粘贴到腾讯文档', 'success');
+      } catch(e) {
+        this.showToast('复制失败，请手动复制', 'error');
+      }
+      document.body.removeChild(ta);
+    },
+
+    showToast(msg, type) {
+      this.toastMsg = msg;
+      this.toastType = type || 'success';
+      setTimeout(() => { this.toastMsg = ''; }, 2000);
     },
   };
 }
